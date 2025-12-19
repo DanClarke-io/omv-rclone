@@ -34,13 +34,11 @@ slack_log() {
     sleep 1
 }
 
-
-docker exec rclone rclone rc operations/mkdir \
-  --user "${RCLONE_USER}" --pass "${RCLONE_PASS}" \
-  --json "{\"fs\":\"LocalBackup:\",\"remote\":\"${RCLONE_REMOTE_PATH}/.rclone-write-test\"}" >/dev/null 2>&1
+mkdirTest=$(docker exec rclone rclone rc --user "${RCLONE_USER}" --pass "${RCLONE_PASS}" operations/mkdir \
+  --json "{\"fs\":\"LocalBackup:\",\"remote\":\"${RCLONE_REMOTE_PATH}/.rclone-write-test\"}")
 
 if [ $? -ne 0 ]; then
-  slack_alert "Destination not writable (${RCLONE_REMOTE_PATH}). Backup aborted."
+  slack_alert "Destination not writable (${RCLONE_REMOTE_PATH}). Backup aborted, error was:\n\`\`\`${mkdirTest}\`\`\`"
   exit 1
 fi
 
