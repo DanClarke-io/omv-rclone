@@ -6,127 +6,189 @@ export $(cut -d= -f1 /opt/rclone/config/.env)
 
 HOSTNAME=$(hostname)
 
-# Alerts — pings you, only on failure
-slack_alert() {
-    local message="$1"
-    local full_message
-    full_message=$(echo -e "<@${SLACK_ALERT_USER}> 🚨 *Backup failure on ${HOSTNAME}*\n*rclone* $message")
-
-    # Escape full message
-    local escaped_message
-    escaped_message=$(printf '%s' "<@${SLACK_ALERT_USER}> 🚨 *Backup failure on ${HOSTNAME}*\n *rclone* $full_message" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
-    curl -s -X POST -H 'Content-type: application/json' \
-        --data "{\"text\":$escaped_message}" \
-        "$SLACK_WEBHOOK_URL" > /dev/null
-    sleep 1
+slack_get_channel_id_by_name() {
+  local channel_name="$1"
+  channel_id=$(curl -s https://slack.com/api/conversations.list \
+    -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+    -H "Content-type: application/x-www-form-urlencoded" | jq -r --arg name "$channel_name" '.channels[] | select(.name == $name) | .id')
+  echo "$channel_id"
 }
 
-# Logs — just info, no ping
-slack_log() {
-    local message="$1"
-    local escaped_message
-    # Escape special chars using Python
-    escaped_message=$(printf '%s' "*rclone* $message" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+SLACK_CHANNEL_ID=$(slack_get_channel_id_by_name "$SLACK_CHANNEL")
 
-    curl -s -X POST -H 'Content-type: application/json' \
-        --data "{\"text\":$escaped_message}" \
-        "$SLACK_WEBHOOK_URL" > /dev/null
-    sleep 1
+slack_post() {
+  local text="$1"
+  formatted_text=$(echo -e "$text")
+  local thread_ts="$2"
+
+  
+  # Build payload using jq
+  payload=$(jq -n \
+    --arg channel "$SLACK_CHANNEL_ID" \
+    --arg text "$formatted_text" \
+    --arg thread_ts "$thread_ts" \
+    '{
+        channel: $channel,
+        text: $text
+    } + (if $thread_ts != "" then {"thread_ts": $thread_ts} else {} end)'
+  )
+
+  curl -s -X POST https://slack.com/api/chat.postMessage \
+        -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+        -H "Content-type: application/json" \
+        --data "$payload"
 }
 
-mkdirTest=$(docker exec rclone rclone rc --user "${RCLONE_USER}" --pass "${RCLONE_PASS}" operations/mkdir \
-  --json "{\"fs\":\"LocalBackup:\",\"remote\":\"${RCLONE_REMOTE_PATH}/.rclone-write-test\"}")
+# Start a new backup thread
+start_backup_thread() {
+  local src="$1"
+  local dst="$2"
 
-if [ $? -ne 0 ]; then
-  slack_alert "Destination not writable (${RCLONE_REMOTE_PATH}). Backup aborted, error was:\n\`\`\`${mkdirTest}\`\`\`"
+  response=$(slack_post "🧵 *Backup started*\n${src} → ${dst}")
+  echo "$response" | jq -r '.ts'
+}
+
+# Post a log message in a thread
+slack_thread_log() {
+    local thread_ts="$1"
+    local message="$2"
+    slack_post "• $message" "$thread_ts" > /dev/null
+}
+
+# Post a failure alert in a thread
+slack_thread_alert() {
+    local thread_ts="$1"
+    local message="$2"
+    slack_post "<@${SLACK_ALERT_USER}> 🚨 *Backup failed*\n$message" "$thread_ts" > /dev/null
+}
+
+# Update the parent message (live progress)
+slack_update_parent() {
+    local ts="$1"
+    local new_text="$2"
+
+    formatted_text=$(echo -e "$new_text")
+
+    payload=$(jq -n \
+      --arg channel "$SLACK_CHANNEL_ID" \
+      --arg ts "$ts" \
+      --arg text "$formatted_text" \
+      '{
+          channel: $channel,
+          ts: $ts,
+          text: $text
+      }'
+    )
+
+    curl -s -X POST https://slack.com/api/chat.update \
+         -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+         -H "Content-type: application/json" \
+         --data "$payload" > /dev/null
+}
+
+# Send a top-level alert (no thread)
+slack_alert_top() {
+  local message="$1"
+
+  payload=$(jq -n \
+    --arg channel "$SLACK_CHANNEL_ID" \
+    --arg text "<@${SLACK_ALERT_USER}> 🚨 *Backup aborted on ${HOSTNAME}*\n${message}" \
+    '{
+      channel: $channel,
+      text: $text
+    }'
+  )
+
+  curl -s -X POST https://slack.com/api/chat.postMessage \
+    -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+    -H "Content-type: application/json" \
+    --data "$payload" > /dev/null
+}
+
+if ! mkdirTest=$(docker exec rclone rclone rc operations/mkdir \
+  --user "${RCLONE_USER}" --pass "${RCLONE_PASS}" \
+  fs=LocalBackup: \
+  remote="${RCLONE_REMOTE_PATH}/.rclone-write-test" 2>&1); then
+
+  slack_alert_top \
+    "*Destination not writable*\n\`${RCLONE_REMOTE_PATH}\`\n\n\`\`\`${mkdirTest}\`\`\`"
   exit 1
 fi
 
+run_sync() {
+    local src="$1"
+    local dst="$2"
 
-start_sync() {
-  docker exec rclone rclone rc sync/sync \
-    srcFs="$1" \
-    dstFs="$2" \
-    _async=true \
-    --user "${RCLONE_USER}" \
-    --pass "${RCLONE_PASS}" \
-    $filterVar \
-    $additionalFlags
-}
+    local start_time=$(date +%s)
 
-job_status() {
-  docker exec rclone rclone rc job/status \
-    jobid="$1" \
-    --user "${RCLONE_USER}" \
-    --pass "${RCLONE_PASS}"
-}
+    # Send parent message
+    PARENT_TS=$(slack_post "🧵 *Backup started*\n${src} → ${dst}" "" | jq -r '.ts')
 
-stats() {
-  docker exec rclone rclone rc core/stats \
-    --user "${RCLONE_USER}" \
-    --pass "${RCLONE_PASS}"
-}
+    # Start async rclone job
+    job_json=$(docker exec rclone rclone rc sync/sync \
+        srcFs="$src" \
+        dstFs="$dst" \
+        _async=true \
+        --user "${RCLONE_USER}" \
+        --pass "${RCLONE_PASS}" \
+        _filter={\"ExcludeFrom\":[\"/config/rclone/backup-excludes.txt\"]} \
+        --immutable --ignore-errors=false --timeout 5m --contimeout 15s
+    )
 
-monitor_job() {
-  local jobid="$1"
-  local src="$2"
-  local dst="$3"
-  local last_update=0
+    jobid=$(echo "$job_json" | jq -r '.jobid')
+    slack_thread_log "$PARENT_TS" "Job ID: ${jobid}"
 
-  while true; do
-    status=$(job_status "$jobid")
-    finished=$(echo "$status" | jq -r '.finished')
+    last_update=0
+    while true; do
+        status=$(docker exec rclone rclone rc job/status \
+            jobid="$jobid" \
+            --user "${RCLONE_USER}" \
+            --pass "${RCLONE_PASS}"
+        )
 
-    now=$(date +%s)
-    if (( now - last_update > 300 )); then
-      s=$(stats)
-      transferred=$(echo "$s" | jq -r '.bytes')
-      total=$(echo "$s" | jq -r '.totalBytes')
-      eta=$(echo "$s" | jq -r '.eta')
+        finished=$(echo "$status" | jq -r '.finished')
+        success=$(echo "$status" | jq -r '.success')
 
-      slack_log "Progress: ${src} → ${dst}
-Transferred: $(numfmt --to=iec "$transferred") / $(numfmt --to=iec "$total")
-ETA: ${eta}s"
+        now=$(date +%s)
+        if (( now - last_update > 300 )); then
+            # Fetch progress (bytes, total, ETA)
+            stats=$(docker exec rclone rclone rc core/stats \
+                --user "${RCLONE_USER}" \
+                --pass "${RCLONE_PASS}"
+            )
+            bytes=$(echo "$stats" | jq -r '.bytes')
+            total=$(echo "$stats" | jq -r '.totalBytes')
+            eta=$(echo "$stats" | jq -r '.eta')
 
-      last_update=$now
+            # Update parent with live progress
+            slack_update_parent "$PARENT_TS" \
+                "🧵 *Backup running*\n${src} → ${dst}\nProgress: $(numfmt --to=iec "$bytes") / $(numfmt --to=iec "$total") • ETA ${eta}s"
+
+            # Log in thread too
+            slack_thread_log "$PARENT_TS" "Progress: $(numfmt --to=iec "$bytes") / $(numfmt --to=iec "$total") • ETA ${eta}s"
+
+            last_update=$now
+        fi
+
+        [[ "$finished" == "true" ]] && break
+        sleep 10
+    done
+
+    if [[ "$success" != "true" ]]; then
+        error=$(echo "$status" | jq -r '.error')
+        slack_thread_alert "$PARENT_TS" \
+            "Sync failed:\n*${src} → ${dst}*\n${error}"
+        return 1
     fi
 
-    [[ "$finished" == "true" ]] && break
-    sleep 10
-  done
+    end_time=$(date +%s)
+    elapsed=$((end_time - start_time))
+    elapsed_formatted=$(printf "%02dh:%02dm:%02ds" \
+        $((elapsed/3600)) $(((elapsed%3600)/60)) $((elapsed%60)))
 
-  success=$(echo "$status" | jq -r '.success')
-  error=$(echo "$status" | jq -r '.error')
-
-  if [[ "$success" != "true" ]]; then
-    slack_alert "Sync failed:\n*${src} → ${dst}*\n\`\`\`${error}\`\`\`"
-    return 1
-  fi
+    slack_thread_log "$PARENT_TS" "✅ Finished in ${elapsed_formatted}"
+    slack_update_parent "$PARENT_TS" "🧵 *Backup finished*\n${src} → ${dst} (took ${elapsed_formatted})"
 }
-
-run_sync() {
-  local src="$1"
-  local dst="$2"
-  local start_time=$(date +%s)
-
-  slack_log "Starting backup: ${src} → ${dst}"
-
-  job_json=$(start_sync "$src" "$dst")
-  jobid=$(echo "$job_json" | jq -r '.jobid')
-
-  monitor_job "$jobid" "$src" "$dst" || exit 1
-
-  end_time=$(date +%s)
-  elapsed=$((end_time - start_time))
-  elapsed_formatted=$(printf "%02dh:%02dm:%02ds" \
-    $((elapsed/3600)) $(((elapsed%3600)/60)) $((elapsed%60)))
-
-  slack_log "Finished backup: ${src} → ${dst} (took ${elapsed_formatted})"
-}
-
-filterVar="_filter={\"ExcludeFrom\":[\"/config/rclone/backup-excludes.txt\"]}"
-
-additionalFlags="--immutable --ignore-errors=false --timeout 5m --contimeout 15s"
 
 run_sync /sharedfolders/PhotoVault  LocalBackup:/mnt/Backup/PhotoVault
 run_sync /sharedfolders/FilmVault   LocalBackup:/mnt/Backup/FilmVault
