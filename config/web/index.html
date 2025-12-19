@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>rclone rc GUI</title>
+
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon.png">
+
+    <link rel="stylesheet" href="./css/gui.css">
+    <link rel="stylesheet" href="./css/gui-mobile.css">
+</head>
+<body>
+    <div class="body-block header">
+        <h1 style="flex-grow:1;">rclone rc GUI</h1>
+        <img id="indicator-gui-frozen" class="icon" src="./images/snow2.svg"
+            title="The GUI is frozen in time and isn't updating">
+        <input id="btn-settings" type="image" class="icon"
+            src="./images/gear-wide-connected.svg" title="Show/hide settings">
+    </div>
+
+    <div id="settings">
+        <h4 style="margin:0 0 15px 0;">Settings</h4>
+
+        <div class="settings-item">
+            <input id="chbx-polling" type="checkbox">
+            <label for="chbx-polling">auto-refreshing the view</label>
+        </div>
+        <div id="inputRefresh" class="settings-item">
+            <label for="input-refresh-view">View is refreshed every</label>
+            <input id="input-refresh-view" type="number" min="1" max="120" value="2" step="1" style="width:5em; text-align:center;">
+            <label for="input-refresh-view">seconds</label>
+        </div>
+        <div id="manualRefresh" class="settings-item" style="display:none;">
+            <button id="btn-manualRefresh" type="button">Refresh the view manually</button>
+        </div>
+    </div>
+
+    <div class="body-block" style="margin-top:10px;">
+        <h2>Transfers (<span id="currentTransfersCount">0</span>)</h2>
+        <div id="currentTransfers">
+            <table>
+                <thead>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th>Size</th>
+                    <th>Speed</th>
+                    <th>Progress</th>
+                    <th></th>
+                </thead>
+                <tbody id="currentTransfersBody">
+                    <tr>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="body-block">
+        <h2>Files</h2>
+        <div id="files">
+            <div class="filesPanelWrapper">
+                <div class="controls">
+                    <button id="leftPanelCommandCopy" type="button" class="with-icon"
+                        title="Copy selected files/folders to the right panel">
+                        <img src="./images/arrow-right-square.svg">
+                        <span>Copy</span>
+                    </button>
+                    <button id="leftPanelCommandMove" type="button" class="with-icon"
+                        title="Move selected files/folders to the right panel">
+                        <img src="./images/arrow-right-square-fill.svg">
+                        <span>Move</span>
+                    </button>
+                    <button id="leftPanelCommandDelete" type="button" class="with-icon"
+                        title="Delete selected files/folders">
+                        <img src="./images/trash3.svg">
+                        <span>Delete</span>
+                    </button>
+                    <div class="lastButtons">
+                        <button id="leftPanelCommandShowCreateFolder" type="button" class="with-icon"
+                            title="Create a new folder">
+                            <img src="./images/folder-plus.svg">
+                            <span class="hide-on-desktop">New&nbsp;folder</span>
+                        </button>
+                        <button id="leftPanelCommandShowSearch" type="button" class="with-icon"
+                            title="Search among displayed files/folders">
+                            <img src="./images/search.svg">
+                            <span class="hide-on-desktop">Search</span>
+                        </button>
+                        <button id="leftPanelCommandRefresh" type="button" class="with-icon"
+                            title="Refresh the list">
+                            <img src="./images/arrow-clockwise.svg">
+                            <span class="hide-on-desktop">Refresh</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="input-query create-folder">
+                    <input id="leftPanelNewFolderName" type="text" placeholder="Folder name">
+                    <button id="leftPanelCommandCreateFolder" type="button">Create</button>
+                    <button id="leftPanelCommandHideCreateFolder" type="button">Cancel</button>
+                </div>
+                <div class="input-query search">
+                    <input id="leftPanelSearchQuery" type="text" placeholder="Filter files/folders by name">
+                    <button id="leftPanelCommandHideSearch" type="button">Cancel</button>
+                </div>
+                <div class="filesPanel">
+                    <div class="filesPanelHeader">
+                        <select id="leftPanelRemote">
+                            <option value="">- choose a remote -</option>
+                        </select>
+                        <div>Items:&nbsp;<span class="filesCount">-</span></div>
+                    </div>
+                    <div class="panelFilesContainer">
+                        <div id="leftPanelFiles" class="filesList">
+                            <div class="fileLine">
+                                <img class="icon" src="./images/file.svg">
+                                <p>..</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="filesPanelWrapper">
+                <div class="controls">
+                    <button id="rightPanelCommandCopy" type="button" class="with-icon"
+                        title="Copy selected files/folders to the left panel">
+                        <img src="./images/arrow-left-square.svg">
+                        <span>Copy</span>
+                    </button>
+                    <button id="rightPanelCommandMove" type="button" class="with-icon"
+                        title="Move selected files/folders to the left panel">
+                        <img src="./images/arrow-left-square-fill.svg">
+                        <span>Move</span>
+                    </button>
+                    <button id="rightPanelCommandDelete" type="button" class="with-icon"
+                        title="Delete selected files/folders">
+                        <img src="./images/trash3.svg">
+                        <span>Delete</span>
+                    </button>
+                    <div class="lastButtons">
+                        <button id="rightPanelCommandShowCreateFolder" type="button" class="with-icon"
+                            title="Create a new folder">
+                            <img src="./images/folder-plus.svg">
+                            <span class="hide-on-desktop">New&nbsp;folder</span>
+                        </button>
+                        <button id="rightPanelCommandShowSearch" type="button" class="with-icon"
+                            title="Search among displayed files/folders">
+                            <img src="./images/search.svg">
+                            <span class="hide-on-desktop">Search</span>
+                        </button>
+                        <button id="rightPanelCommandRefresh" type="button" class="with-icon"
+                            title="Refresh the list">
+                            <img src="./images/arrow-clockwise.svg">
+                            <span class="hide-on-desktop">Refresh</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="input-query create-folder">
+                    <input id="rightPanelNewFolderName" type="text" placeholder="Folder name">
+                    <button id="rightPanelCommandCreateFolder" type="button">Create</button>
+                    <button id="rightPanelCommandHideCreateFolder" type="button">Cancel</button>
+                </div>
+                <div class="input-query search">
+                    <input id="rightPanelSearchQuery" type="text" placeholder="Filter files/folders by name">
+                    <button id="rightPanelCommandHideSearch" type="button">Cancel</button>
+                </div>
+                <div class="filesPanel">
+                    <div class="filesPanelHeader">
+                        <select id="rightPanelRemote">
+                            <option value="">- choose a remote -</option>
+                        </select>
+                        <div>Items:&nbsp;<span class="filesCount">-</span></div>
+                    </div>
+                    <div class="panelFilesContainer">
+                        <div id="rightPanelFiles" class="filesList">
+                            <div class="fileLine">
+                                <img class="icon" src="./images/file.svg">
+                                <p>..</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="body-block" style="flex-grow:1; padding-bottom:30px;">
+        <h2>Completed transfers (<span id="completedTransfersCount">0</span>)</h2>
+        <div id="completedTransfers">
+            <table>
+                <thead>
+                    <th>Started at</th>
+                    <th>Status</th>
+                    <th>Name</th>
+                    <th>Size</th>
+                </thead>
+                <tbody id="completedTransfersBody">
+                    <tr>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                        <td>-</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="body-block footer">
+        <div>
+            <b>rclone</b> <span id="rcloneVersion"><i>unknown</i></span>
+            <b>on</b> <span id="rcloneOS"><i>unknown</i></span></li>
+        </div>
+        <div>
+            <b>gui</b> v<span id="guiVersion"><i>unknown</i></span>
+        </div>
+    </div>
+
+    <script type="module" src="./js/settings.js"></script>
+    <script type="module" src="./js/functions.js"></script>
+    <script type="module" src="./js/main.js"></script>
+</body>
+</html>

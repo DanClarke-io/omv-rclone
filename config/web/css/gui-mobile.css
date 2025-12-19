@@ -1,0 +1,53 @@
+@media only screen and (max-width: 720px) {
+    h1 { font-size: 1.5em; }
+    h2 { font-size: 1.3em; }
+    h3 { font-size: 1.15em; }
+    h4 { font-size: 1em; }
+    h5 { font-size: 0.8em; }
+    h6 { font-size: 0.7em; }
+
+    .body-block {
+        padding: 10px;
+    }
+
+    #completedTransfers,
+    #currentTransfers,
+    .filesList {
+        font-size: 0.9rem;
+    }
+
+    .icon {
+        width: 1em;
+        height: 1em;
+    }
+    .header > .icon {
+        width: 1.5em;
+        height: 1.5em;
+    }
+
+    .controls,
+    .lastButtons {
+        flex-direction: column;
+    }
+    .lastButtons {
+        margin-left: unset;
+    }
+
+    div.controls button {
+        padding: 6px 0;
+    }
+
+    button.with-icon > span.hide-on-desktop {
+        display: block;
+    }
+
+    /* --- settings panel --- */
+
+    #settings {
+        padding: 10px 15px;
+    }
+
+    .settings-item {
+        margin-top: 5px;
+    }
+}
