@@ -117,8 +117,19 @@ if ! mkdirTest=$(docker exec rclone rclone rc operations/mkdir \
   exit 1
 fi
 
+
+checkMountedOverSSH() {
+    local remote_path="$1"
+    mount_check=$(ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no "${RCLONE_SSH_USER}@${RCLONE_SSH_HOST}" "mount | grep '${remote_path}'" 2>&1)
+    if [[ -z "$mount_check" ]]; then
+        slack_alert_top "*Remote path not mounted over SSH*\nRemote path \`${remote_path}\` is not mounted on \`${RCLONE_SSH_HOST}\`."
+        exit 1
+    fi
+}
+
 run_sync() {
     # Prevent concurrent runs for the same src/dst
+    checkMountedOverSSH "${RCLONE_REMOTE_PATH}"
     lock_dir=/tmp/rclone_sync_locks
     mkdir -p "$lock_dir"
     lock_hash=$(printf '%s::%s' "$1" "$2" | sha1sum | awk '{print $1}')
