@@ -107,8 +107,8 @@ slack_alert_top() {
 
 if ! mkdirTest=$(docker exec rclone rclone rc operations/mkdir \
   --user "${RCLONE_USER}" --pass "${RCLONE_PASS}" \
-  fs=LocalBackup: \
-  remote="${RCLONE_REMOTE_PATH}/.rclone-write-test" 2>&1); then
+  fs=MainDirBackup: \
+  remote=".rclone-write-test" 2>&1); then
 
   slack_alert_top \
     "*Destination not writable*\n\`${RCLONE_REMOTE_PATH}\`\n\n\`\`\`${mkdirTest}\`\`\`"
@@ -116,6 +116,28 @@ if ! mkdirTest=$(docker exec rclone rclone rc operations/mkdir \
 fi
 
 run_sync() {
+    # Prevent concurrent runs for the same src/dst
+    lock_dir=/tmp/rclone_sync_locks
+    mkdir -p "$lock_dir"
+    lock_hash=$(printf '%s::%s' "$1" "$2" | sha1sum | awk '{print $1}')
+    lock_file="$lock_dir/$lock_hash.lock"
+
+    # Open lock file and acquire an exclusive non-blocking lock
+    exec {lock_fd}>"$lock_file" || { echo "Cannot open lock file $lock_file" >&2; return 1; }
+    if ! flock -n "$lock_fd"; then
+      echo "Sync already running for $1 -> $2, skipping" >&2
+      slack_alert_top "*Backup skipped on ${HOSTNAME}*\nBackup for ${1} → ${2} is already running; skipping."
+      return 0
+    fi
+
+    # Record PID for diagnostics and ensure lock cleanup on function exit
+    printf '%s\n' "$$" >&"$lock_fd"
+    cleanup_lock() {
+      rm -f "$lock_file" 2>/dev/null || true
+      eval "exec ${lock_fd}>&-"
+    }
+    trap cleanup_lock RETURN
+    
     local src="$1"
     local dst="$2"
 
@@ -176,7 +198,7 @@ run_sync() {
 
     if [[ "$success" != "true" ]]; then
         error=$(echo "$status" | jq -r '.error')
-        slack_thread_alert "$PARENT_TS" \
+        slack_alert_top "$PARENT_TS" \
             "Sync failed:\n*${src} → ${dst}*\n${error}"
         return 1
     fi
@@ -190,8 +212,8 @@ run_sync() {
     slack_update_parent "$PARENT_TS" "🧵 *Backup finished*\n${src} → ${dst} (took ${elapsed_formatted})"
 }
 
-run_sync /sharedfolders/PhotoVault  LocalBackup:/mnt/Backup/PhotoVault
-run_sync /sharedfolders/FilmVault   LocalBackup:/mnt/Backup/FilmVault
-run_sync /sharedfolders/HomeVault   LocalBackup:/mnt/Backup/HomeVault
-run_sync /sharedfolders/SharedData  LocalBackup:/mnt/Backup/Server/SharedData
-run_sync /opt                       LocalBackup:/mnt/Backup/Server/opt
+run_sync /sharedfolders/PhotoVault  MainDirBackup:PhotoVault
+run_sync /sharedfolders/FilmVault   MainDirBackup:FilmVault
+run_sync /sharedfolders/HomeVault   MainDirBackup:HomeVault
+run_sync /sharedfolders/SharedData  MainDirBackup:Server/SharedData
+run_sync /opt                       MainDirBackup:Server/opt
