@@ -90,9 +90,11 @@ slack_update_parent() {
 slack_alert_top() {
   local message="$1"
 
+  formatted_text=$(echo -e "$message")
+
   payload=$(jq -n \
     --arg channel "$SLACK_CHANNEL_ID" \
-    --arg text "<@${SLACK_ALERT_USER}> 🚨 *Backup aborted on ${HOSTNAME}*\n${message}" \
+    --arg text "<@${SLACK_ALERT_USER}> 🚨 *Backup aborted on ${HOSTNAME}*\n${formatted_text}" \
     '{
       channel: $channel,
       text: $text
