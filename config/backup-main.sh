@@ -44,7 +44,7 @@ start_backup_thread() {
   local src="$1"
   local dst="$2"
 
-  response=$(slack_post "🧵 *Backup started*\n${src} → ${dst}")
+  response=$(slack_post "🧵 *Backup started*\n${src}")
   echo "$response" | jq -r '.ts'
 }
 
@@ -157,7 +157,7 @@ run_sync() {
     local start_time=$(date +%s)
 
     # Send parent message
-    PARENT_TS=$(slack_post "🧵 *Backup started*\n${src} → ${dst}" "" | jq -r '.ts')
+    PARENT_TS=$(slack_post "🧵 *Backup started*\n${src}" "" | jq -r '.ts')
 
     # Start async rclone job
     job_json=$(docker exec rclone rclone rc sync/sync \
@@ -197,7 +197,7 @@ run_sync() {
 
             # Update parent with live progress
             slack_update_parent "$PARENT_TS" \
-                "🧵 *Backup running*\n${src} → ${dst}\nProgress: $(numfmt --to=iec "$bytes") / $(numfmt --to=iec "$total") • ETA ${eta}s"
+                "🧵 *Backup running*\n${src}\nProgress: $(numfmt --to=iec "$bytes") / $(numfmt --to=iec "$total") • ETA ${eta}s"
 
             # Log in thread too
             slack_thread_log "$PARENT_TS" "Progress: $(numfmt --to=iec "$bytes") / $(numfmt --to=iec "$total") • ETA ${eta}s"
@@ -211,8 +211,8 @@ run_sync() {
 
     if [[ "$success" != "true" ]]; then
         error=$(echo "$status" | jq -r '.error')
-        slack_alert_top "$PARENT_TS" \
-            "Sync failed:\n*${src} → ${dst}*\n${error}"
+        slack_alert_top "Sync failed:*\n${src}*\n${error}"
+        slack_update_parent "$PARENT_TS" "🧵 *Backup failed*\n${src}\nError: ${error}"
         return 1
     fi
 
@@ -222,7 +222,7 @@ run_sync() {
         $((elapsed/3600)) $(((elapsed%3600)/60)) $((elapsed%60)))
 
     slack_thread_log "$PARENT_TS" "✅ Finished in ${elapsed_formatted}"
-    slack_update_parent "$PARENT_TS" "🧵 *Backup finished*\n${src} → ${dst} (took ${elapsed_formatted})"
+    slack_update_parent "$PARENT_TS" "🧵 *Backup finished*\n${src} (took ${elapsed_formatted})"
 }
 
 run_sync /sharedfolders/PhotoVault  MainDirBackup:PhotoVault
