@@ -94,7 +94,7 @@ slack_alert_top() {
 
   payload=$(jq -n \
     --arg channel "$SLACK_CHANNEL_ID" \
-    --arg text "<@${SLACK_ALERT_USER}> 🚨 *Backup aborted on ${HOSTNAME}*\n${formatted_text}" \
+    --arg text "<@${SLACK_ALERT_USER}> 🚨 *Backup aborted on ${HOSTNAME}*\n$formatted_text" \
     '{
       channel: $channel,
       text: $text
